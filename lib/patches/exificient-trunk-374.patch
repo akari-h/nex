@@ -1,0 +1,237 @@
+diff --git a/src/main/com/siemens/ct/exi/datatype/strings/StringDecoderImpl.java b/src/main/com/siemens/ct/exi/datatype/strings/StringDecoderImpl.java
+index fe60a51..c1b8cbe 100644
+--- a/src/main/com/siemens/ct/exi/datatype/strings/StringDecoderImpl.java
++++ b/src/main/com/siemens/ct/exi/datatype/strings/StringDecoderImpl.java
+@@ -40,6 +40,8 @@ import com.siemens.ct.exi.values.StringValue;
+ 
+ public class StringDecoderImpl implements StringDecoder {
+ 
++	protected boolean isPersistent = false;
++
+ 	// global values (all)
+ 	protected List<StringValue> globalValues;
+ 
+@@ -51,6 +53,10 @@ public class StringDecoderImpl implements StringDecoder {
+ 		localValues = new HashMap<QName, List<StringValue>>();
+ 	}
+ 
++	public void persistent(boolean flag){
++		this.isPersistent = flag;
++	}
++
+ 	public StringValue readValue(QName context, DecoderChannel valueChannel)
+ 			throws IOException {
+ 		StringValue value;
+@@ -123,8 +129,14 @@ public class StringDecoderImpl implements StringDecoder {
+ 	}
+ 
+ 	public void clear() {
+-		globalValues.clear();
+-		localValues.clear();
++		if (!this.isPersistent){
++			globalValues.clear();
++			localValues.clear();
++		}
+ 	}
+ 
+ }
++
++/* Local Variables: */
++/* c-basic-offset: 8 */
++/* End: */
+diff --git a/src/main/com/siemens/ct/exi/datatype/strings/StringEncoderImpl.java b/src/main/com/siemens/ct/exi/datatype/strings/StringEncoderImpl.java
+index 79d8390..0c17776 100644
+--- a/src/main/com/siemens/ct/exi/datatype/strings/StringEncoderImpl.java
++++ b/src/main/com/siemens/ct/exi/datatype/strings/StringEncoderImpl.java
+@@ -37,6 +37,8 @@ import com.siemens.ct.exi.util.MethodsBag;
+ 
+ public class StringEncoderImpl implements StringEncoder {
+ 
++	protected boolean isPersistent = false;
++
+ 	// strings (all)
+ 	protected Map<String, ValueContainer> stringValues;
+ 
+@@ -48,6 +50,10 @@ public class StringEncoderImpl implements StringEncoder {
+ 		localValueSize = new HashMap<QName, Integer>();
+ 	}
+ 
++	public void persistent(boolean flag){
++		this.isPersistent = flag;
++	}
++
+ 	public void writeValue(QName context, EncoderChannel valueChannel,
+ 			String value) throws IOException {
+ 
+@@ -131,8 +137,10 @@ public class StringEncoderImpl implements StringEncoder {
+ 	}
+ 
+ 	public void clear() {
+-		stringValues.clear();
+-		localValueSize.clear();
++		if (!this.isPersistent){
++		    stringValues.clear();
++		    localValueSize.clear();
++		}
+ 	}
+ 
+ 	static class ValueContainer {
+@@ -155,3 +163,6 @@ public class StringEncoderImpl implements StringEncoder {
+ 	}
+ 
+ }
++/* Local Variables: */
++/* c-basic-offset: 8 */
++/* End: */
+diff --git a/src/main/com/siemens/ct/exi/grammar/EXIContentModelBuilder.java b/src/main/com/siemens/ct/exi/grammar/EXIContentModelBuilder.java
+index b4db7db..f76255c 100644
+--- a/src/main/com/siemens/ct/exi/grammar/EXIContentModelBuilder.java
++++ b/src/main/com/siemens/ct/exi/grammar/EXIContentModelBuilder.java
+@@ -73,8 +73,7 @@ import com.siemens.ct.exi.util.sort.LexicographicSort;
+  * @version 0.8
+  */
+ 
+-public abstract class EXIContentModelBuilder extends CMBuilder implements
+-		XMLErrorHandler {
++public abstract class EXIContentModelBuilder extends CMBuilder implements XMLErrorHandler {
+ 
+ 	private static final boolean DEBUG = false;
+ 
+diff --git a/src/main/com/siemens/ct/exi/helpers/DefaultEXIFactory.java b/src/main/com/siemens/ct/exi/helpers/DefaultEXIFactory.java
+index 631d9c2..42e7524 100644
+--- a/src/main/com/siemens/ct/exi/helpers/DefaultEXIFactory.java
++++ b/src/main/com/siemens/ct/exi/helpers/DefaultEXIFactory.java
+@@ -77,6 +77,11 @@ import com.siemens.ct.exi.types.TypedTypeEncoder;
+ 
+ public class DefaultEXIFactory implements EXIFactory {
+ 
++	protected static StringEncoder persistentStringEncoder = null;
++	protected static StringDecoder persistentStringDecoder = null;
++	protected static boolean usePersistentStringTables = false;
++    
++
+ 	protected Grammar grammar;
+ 	protected boolean isFragment;
+ 	protected CodingMode codingMode;
+@@ -110,6 +115,15 @@ public class DefaultEXIFactory implements EXIFactory {
+ 	protected DefaultEXIFactory() {
+ 	}
+ 
++	// added by YD 2013-05-27
++	public static void persistentStringTables(boolean flag){
++		usePersistentStringTables = flag;
++		if (flag == false){
++			persistentStringDecoder = null;
++			persistentStringEncoder = null;
++		}
++		return;
++	}
+ 	protected static void setDefaultValues(EXIFactory factory) {
+ 		factory.setFidelityOptions(FidelityOptions.createDefault());
+ 		factory.setEncodingOptions(EncodingOptions.createDefault());
+@@ -418,9 +432,12 @@ public class DefaultEXIFactory implements EXIFactory {
+ 		return new SAXDecoder(this);
+ 	}
+ 
+-	public TypeEncoder createTypeEncoder() throws EXIException {
+-		// string encoder
++	public StringEncoder createStringEncoder() throws EXIException {
+ 		StringEncoder stringEncoder;
++		if (persistentStringEncoder != null){
++			return persistentStringEncoder;
++		}
++
+ 		if (getValueMaxLength() != Constants.DEFAULT_VALUE_MAX_LENGTH
+ 				|| getValuePartitionCapacity() != Constants.DEFAULT_VALUE_PARTITON_CAPACITY) {
+ 			stringEncoder = new BoundedStringEncoderImpl(getValueMaxLength(),
+@@ -428,7 +445,16 @@ public class DefaultEXIFactory implements EXIFactory {
+ 		} else {
+ 			stringEncoder = new StringEncoderImpl();
+ 		}
+-
++		
++		if (usePersistentStringTables){
++			persistentStringEncoder = stringEncoder;
++			((StringEncoderImpl)persistentStringEncoder).persistent(true);
++		}
++		return stringEncoder;
++	}
++	public TypeEncoder createTypeEncoder() throws EXIException {
++		// string encoder
++		StringEncoder stringEncoder = createStringEncoder();
+ 		TypeEncoder typeEncoder;
+ 
+ 		// create new type encoder
+@@ -456,9 +482,11 @@ public class DefaultEXIFactory implements EXIFactory {
+ 		return typeEncoder;
+ 	}
+ 
+-	public TypeDecoder createTypeDecoder() throws EXIException {
+-		// string Decoder
++	protected StringDecoder createStringDecoder() throws EXIException {
+ 		StringDecoder stringDecoder;
++		if (persistentStringDecoder != null){
++			return persistentStringDecoder;
++		}
+ 		if (getValueMaxLength() != Constants.DEFAULT_VALUE_MAX_LENGTH
+ 				|| getValuePartitionCapacity() != Constants.DEFAULT_VALUE_PARTITON_CAPACITY) {
+ 			stringDecoder = new BoundedStringDecoderImpl(getValueMaxLength(),
+@@ -466,7 +494,15 @@ public class DefaultEXIFactory implements EXIFactory {
+ 		} else {
+ 			stringDecoder = new StringDecoderImpl();
+ 		}
+-
++		if (usePersistentStringTables){
++			persistentStringDecoder = stringDecoder;
++			((StringDecoderImpl)persistentStringDecoder).persistent(true);
++		}
++		return stringDecoder;
++	}
++	public TypeDecoder createTypeDecoder() throws EXIException {
++		// string Decoder
++		StringDecoder stringDecoder = createStringDecoder();
+ 		TypeDecoder typeDecoder;
+ 
+ 		// create new type-decoder
+@@ -607,3 +643,7 @@ public class DefaultEXIFactory implements EXIFactory {
+ 	}
+ 
+ }
++/* Local Variables: */
++/* c-basic-offset: 8 */
++/* End: */
++	    
+\ No newline at end of file
+diff --git a/src/main/com/siemens/ct/exi/helpers/DefaultSchemaIdResolver.java b/src/main/com/siemens/ct/exi/helpers/DefaultSchemaIdResolver.java
+index 6222543..8cf7a5f 100644
+--- a/src/main/com/siemens/ct/exi/helpers/DefaultSchemaIdResolver.java
++++ b/src/main/com/siemens/ct/exi/helpers/DefaultSchemaIdResolver.java
+@@ -43,17 +43,24 @@ public class DefaultSchemaIdResolver implements SchemaIdResolver {
+ 	protected GrammarFactory gf;
+ 	
+ 	public DefaultSchemaIdResolver() {
+-		gf = GrammarFactory.newInstance();
++		
++	}
++	
++	protected GrammarFactory getGrammarFactory() {
++		if (gf == null) {
++			gf = GrammarFactory.newInstance();
++		}
++		return gf;
+ 	}
+ 	
+ 	public Grammar resolveSchemaId(String schemaId) throws EXIException {
+ 		if (schemaId == null) {
+-			return gf.createSchemaLessGrammar();
++			return getGrammarFactory().createSchemaLessGrammar();
+ 		} else if ("".equals(schemaId)) {
+-			return gf.createXSDTypesOnlyGrammar();
++			return getGrammarFactory().createXSDTypesOnlyGrammar();
+ 		} else {
+ 			// interpret schemaId as location
+-			return gf.createGrammar(schemaId);
++			return getGrammarFactory().createGrammar(schemaId);
+ 		}
+ 	}
+ 	
