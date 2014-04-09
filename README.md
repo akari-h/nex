@@ -37,5 +37,5 @@ Note on EXIficient:
 
 License:
 =============
-should be GPLv2
+GPLv2
 
